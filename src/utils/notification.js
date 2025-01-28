@@ -2,17 +2,16 @@ export const sendNotification = (title, message) => {
     if (Notification.permission === "granted") {
       new Notification(title, {
         body: message,
-        icon: "/tiffin-icon.png", // Custom icon if you'd like
+        icon: "/food.png", // Updated icon path
       });
     } else if (Notification.permission !== "denied") {
       Notification.requestPermission().then((permission) => {
         if (permission === "granted") {
           new Notification(title, {
             body: message,
-            icon: "/tiffin-icon.png",
+            icon: "/assets/food-icon.png", // Updated icon path
           });
         }
       });
     }
-  };
-  
+};

@@ -37,7 +37,7 @@ function App() {
   return (
     <div>
       {/* AppBar */}
-      <AppBar position="sticky" sx={{ backgroundColor: "#333", padding: "10px" }}>
+      <AppBar position="sticky" sx={{ backgroundColor: "#00796B", padding: "10px" }}>
         <Toolbar>
           <IconButton
             edge="start"
