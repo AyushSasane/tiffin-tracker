@@ -22,86 +22,109 @@ function WeeklyInsights() {
   const [loading, setLoading] = useState(true);
   const [weekRange, setWeekRange] = useState("");
   const [members, setMembers] = useState([]);
-  const [currentWeek, setCurrentWeek] = useState(""); // Track current week range
+  const [selectedDate, setSelectedDate] = useState(new Date()); // Track selected week
 
-  // Helper function to format week range
+  // Function to get the start and end of the week
   const getWeekRange = (date) => {
     const startOfWeek = new Date(date);
-    startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay()); // Start of the week (Sunday)
+    startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay()); // Sunday as start
+    startOfWeek.setHours(0, 0, 0, 0); // Reset time to 00:00:00
+
     const endOfWeek = new Date(startOfWeek);
-    endOfWeek.setDate(startOfWeek.getDate() + 6); // End of the week (Saturday)
-    return `${startOfWeek.toLocaleDateString()} - ${endOfWeek.toLocaleDateString()}`;
+    endOfWeek.setDate(startOfWeek.getDate() + 6); // Saturday as end
+    endOfWeek.setHours(23, 59, 59, 999); // Set time to 23:59:59
+
+    return {
+      startOfWeek,
+      endOfWeek,
+      formatted: `${startOfWeek.toLocaleDateString()} - ${endOfWeek.toLocaleDateString()}`
+    };
   };
 
-  // Fetch weekly data and member list once component mounts
-  useEffect(() => {
-    const fetchMembersAndData = async () => {
-      try {
-        // Fetch all orders
-        const ordersSnapshot = await getDocs(collection(db, "orders"));
-        const memberSet = new Set(); // Use a Set to avoid duplicates
-        const now = new Date();
-        const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay())); // Start of the week (Sunday)
-        const endOfWeek = new Date(startOfWeek);
-        endOfWeek.setDate(startOfWeek.getDate() + 6); // End of the week (Saturday)
+  // Fetch members dynamically from Firestore
+  const fetchMembers = async () => {
+    try {
+      const ordersSnapshot = await getDocs(collection(db, "orders"));
+      const memberSet = new Set();
 
-        setWeekRange(getWeekRange(now)); // Set current week range
-        const startTimestamp = Timestamp.fromDate(startOfWeek);
-        const endTimestamp = Timestamp.fromDate(endOfWeek);
-
-        // Prepare the query for weekly data
-        const ordersQuery = query(
-          collection(db, "orders"),
-          where("timestamp", ">=", startTimestamp),
-          where("timestamp", "<=", endTimestamp)
-        );
-
-        // Fetch weekly data
-        const querySnapshot = await getDocs(ordersQuery);
-        const totalCosts = {};
-
-        // Extract member data
-        querySnapshot.forEach((doc) => {
-          const data = doc.data();
-          Object.keys(data).forEach((member) => {
-            if (member !== "timestamp") {
-              memberSet.add(member); // Add member to the Set
-              totalCosts[member] = (totalCosts[member] || 0) + parseFloat(data[member].cost);
-            }
-          });
+      ordersSnapshot.forEach((doc) => {
+        const data = doc.data();
+        Object.keys(data).forEach((key) => {
+          if (key !== "timestamp") {
+            memberSet.add(key);
+          }
         });
+      });
 
-        // Set members and weekly total data
-        setMembers(Array.from(memberSet)); // Convert Set to array
-        setWeeklyTotal(totalCosts);
-      } catch (error) {
-        console.error("Error fetching data:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
+      setMembers(Array.from(memberSet));
+    } catch (error) {
+      console.error("Error fetching members:", error);
+    }
+  };
 
-    fetchMembersAndData();
-  }, []); // Runs only once on mount
+  // Fetch weekly data based on selected date
+  const fetchWeeklyData = async () => {
+    setLoading(true);
+    const { startOfWeek, endOfWeek, formatted } = getWeekRange(selectedDate);
+
+    setWeekRange(formatted);
+    const startTimestamp = Timestamp.fromDate(startOfWeek);
+    const endTimestamp = Timestamp.fromDate(endOfWeek);
+
+    const ordersQuery = query(
+      collection(db, "orders"),
+      where("timestamp", ">=", startTimestamp),
+      where("timestamp", "<=", endTimestamp)
+    );
+
+    try {
+      const querySnapshot = await getDocs(ordersQuery);
+      const totalCosts = {};
+
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        Object.keys(data).forEach((member) => {
+          if (member !== "timestamp") {
+            totalCosts[member] = (totalCosts[member] || 0) + parseFloat(data[member].cost);
+          }
+        });
+      });
+
+      setWeeklyTotal(totalCosts);
+    } catch (error) {
+      console.error("Error fetching weekly data:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchMembers();
+  }, []);
+
+  useEffect(() => {
+    fetchWeeklyData();
+  }, [selectedDate]); // Refetch when selected date changes
 
   const maxCost = Math.max(...Object.values(weeklyTotal), 0);
 
-  // Function to convert the weekly data to CSV without any currency symbols
+  // Navigation for previous and next weeks
+  const handleWeekChange = (weeks) => {
+    setSelectedDate((prevDate) => {
+      const newDate = new Date(prevDate);
+      newDate.setDate(prevDate.getDate() + weeks * 7); // Move forward or backward by 7 days
+      return newDate;
+    });
+  };
+
+  // Export data to CSV
   const exportToCSV = () => {
     const rows = [
-      ["Member", "Total Cost"], // Header row
-      ...members.map((member) => [
-        member,
-        (weeklyTotal[member] || 0).toFixed(2), // Format as a decimal number
-      ]),
+      ["Member", "Total Cost"],
+      ...members.map((member) => [member, (weeklyTotal[member] || 0).toFixed(2)])
     ];
 
-    // Convert rows to CSV format
-    const csvContent = rows
-      .map((row) => row.join(","))
-      .join("\n");
-
-    // Create a downloadable file with correct encoding
+    const csvContent = rows.map((row) => row.join(",")).join("\n");
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
 
@@ -121,6 +144,20 @@ function WeeklyInsights() {
       <Typography variant="subtitle1" align="center" color="text.secondary" gutterBottom>
         Week: {weekRange}
       </Typography>
+
+      {/* Week Navigation Buttons */}
+      <Box sx={{ display: "flex", justifyContent: "center", gap: 2, mb: 2 }}>
+        <Button variant="outlined" onClick={() => handleWeekChange(-1)}>
+          Previous Week
+        </Button>
+        <Button
+          variant="outlined"
+          onClick={() => handleWeekChange(1)}
+          disabled={getWeekRange(selectedDate).formatted === getWeekRange(new Date()).formatted}
+        >
+          Next Week
+        </Button>
+      </Box>
 
       {loading ? (
         <Box sx={{ display: "flex", justifyContent: "center", mt: 4 }}>
@@ -144,7 +181,7 @@ function WeeklyInsights() {
                             {member}
                           </Typography>
                           <Chip
-                            label={(weeklyTotal[member] || 0).toFixed(2)} // Format as a decimal number
+                            label={(weeklyTotal[member] || 0).toFixed(2)}
                             color="primary"
                             size="small"
                           />
@@ -164,12 +201,7 @@ function WeeklyInsights() {
                 No data available for this week.
               </Alert>
             )}
-            <Button
-              variant="contained"
-              color="primary"
-              onClick={exportToCSV}
-              sx={{ mt: 3 }}
-            >
+            <Button variant="contained" color="primary" onClick={exportToCSV} sx={{ mt: 3 }}>
               Export to CSV
             </Button>
           </CardContent>

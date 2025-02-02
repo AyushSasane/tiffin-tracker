@@ -4,7 +4,7 @@ import { AppBar, Toolbar, Typography, IconButton, Tabs, Tab, Box, Container } fr
 import MenuIcon from "@mui/icons-material/Menu";
 import DailyEntry from "./pages/DailyEntry";
 import WeeklyInsights from "./pages/WeeklyInsights";
-import { sendNotification } from "./utils/notification"; // Import the notification utility
+import { sendNotification, requestNotificationPermission } from "./utils/notification"; // Import the notification utility
 
 function App() {
   const [activeTab, setActiveTab] = useState(0);
@@ -17,21 +17,28 @@ function App() {
 
   // Set the time for the reminder at 9:00 PM daily
   useEffect(() => {
-    const targetTime = new Date();
-    targetTime.setHours(21, 0, 0, 0); // Set to 9:00 PM today
+    // Request notification permission on component load
+    requestNotificationPermission();
 
-    const timeUntilReminder = targetTime.getTime() - new Date().getTime();
+    const checkAndSendNotification = () => {
+      const now = new Date();
+      const targetTime = new Date();
+      targetTime.setHours(21, 0, 0, 0); // Set target time to 9:00 PM
 
-    if (timeUntilReminder > 0) {
+      if (now >= targetTime) {
+        // If it's past 9:00 PM, schedule for next day
+        targetTime.setDate(targetTime.getDate() + 1);
+      }
+
+      const timeUntilReminder = targetTime.getTime() - now.getTime();
+
       setTimeout(() => {
         sendNotification("Reminder", "Please enter your tiffin orders for today!");
+        checkAndSendNotification(); // Reschedule for the next day
       }, timeUntilReminder);
-    } else {
-      const timeUntilNextReminder = 24 * 60 * 60 * 1000 + timeUntilReminder;
-      setTimeout(() => {
-        sendNotification("Reminder", "Please enter your tiffin orders for today!");
-      }, timeUntilNextReminder);
-    }
+    };
+
+    checkAndSendNotification(); // Run function initially
   }, []);
 
   return (
