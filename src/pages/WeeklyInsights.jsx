@@ -121,7 +121,7 @@ function WeeklyInsights() {
   const exportToCSV = () => {
     const rows = [
       ["Member", "Total Cost"],
-      ...members.map((member) => [member, (weeklyTotal[member] || 0).toFixed(2)])
+      ...members.map((member) => [member, (weeklyTotal[member] || 0).toFixed(2)]),
     ];
 
     const csvContent = rows.map((row) => row.join(",")).join("\n");
@@ -191,6 +191,28 @@ function WeeklyInsights() {
                           value={((weeklyTotal[member] || 0) / maxCost) * 100}
                           sx={{ height: 8, borderRadius: 2 }}
                         />
+                        {/* Payment Button Section */}
+                        <Box sx={{ mt: 2 }}>
+                          <Typography variant="body2" color="textSecondary">
+                            Payment due for {member}: ₹{(weeklyTotal[member] || 0).toFixed(2)}
+                          </Typography>
+                          <Button
+                            variant="contained"
+                            color="primary"
+                            onClick={() => {
+                              // For Android devices
+                              if (/Mobi|Android/i.test(navigator.userAgent)) {
+                                window.location.href = `intent://pay?pa=ravinapawar987-1@okicici&pn=Ravi%20N%20Pawar#Intent;scheme=upi;package=com.google.android.apps.nbu.paisa.user;end`;
+                              } else {
+                                // For Desktop devices, fallback to Google Pay URL
+                                window.open("https://pay.google.com/gp/p/ui/pay?pa=ravinapawar987-1@okicici", "_blank");
+                              }
+                            }}
+                            sx={{ mt: 1 }}
+                          >
+                            Pay via Google Pay
+                          </Button>
+                        </Box>
                       </Stack>
                     </ListItem>
                   ))}
