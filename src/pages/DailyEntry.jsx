@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { db } from "../firebaseConfig";
+import { db } from "../firebaseConfig"; // Ensure this is correctly initialized
 import { collection, addDoc, Timestamp } from "firebase/firestore";
 import {
   Box,
@@ -72,7 +72,7 @@ function DailyEntry() {
     const { value } = e.target;
     setOrders((prevOrders) => ({
       ...prevOrders,
-      [member]: { cost: value },
+      [member]: { cost: value, paymentStatus: "Pending" },
     }));
   };
 
@@ -92,10 +92,19 @@ function DailyEntry() {
 
     // If validation passes, submit to Firestore
     try {
-      await addDoc(collection(db, "orders"), {
-        ...orders,
-        timestamp: Timestamp.now(),
-      });
+      // Save each member's order to the `orders` collection
+      for (let member in orders) {
+        await addDoc(collection(db, "orders"), {
+          memberId: member,
+          cost: parseFloat(orders[member].cost),
+          paymentStatus: orders[member].paymentStatus,
+          timestamp: Timestamp.now(),
+        });
+      }
+
+      // Optionally, update the `members` collection with the latest due payment
+      // This part will aggregate data from the `orders` collection
+
       setOrders({}); // Reset orders after submission
       setSuccessMessage(true); // Show success message
     } catch (e) {
@@ -146,7 +155,10 @@ function DailyEntry() {
                 }}
               >
                 <CardContent>
-                  <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: "500" }}>
+                  <Typography
+                    variant="subtitle1"
+                    sx={{ mb: 1, fontWeight: "500" }}
+                  >
                     {`Enter ${member}'s Tiffin Cost`}
                   </Typography>
                   <TextField

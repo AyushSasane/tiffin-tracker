@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { db } from "../firebaseConfig";
-import { collection, query, where, getDocs, Timestamp } from "firebase/firestore";
+import { collection, query, where, getDocs, Timestamp, updateDoc, orderBy } from "firebase/firestore"; // Import orderBy here
 import {
   Box,
   Typography,
@@ -15,6 +15,10 @@ import {
   Stack,
   Chip,
   Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
 } from "@mui/material";
 
 function WeeklyInsights() {
@@ -23,6 +27,11 @@ function WeeklyInsights() {
   const [weekRange, setWeekRange] = useState("");
   const [members, setMembers] = useState([]);
   const [selectedDate, setSelectedDate] = useState(new Date()); // Track selected week
+  const [paymentStatus, setPaymentStatus] = useState({}); // Track payment status of each member
+
+  // State for confirmation dialog
+  const [openDialog, setOpenDialog] = useState(false);
+  const [selectedMember, setSelectedMember] = useState(null);
 
   // Function to get the start and end of the week
   const getWeekRange = (date) => {
@@ -31,13 +40,13 @@ function WeeklyInsights() {
     startOfWeek.setHours(0, 0, 0, 0); // Reset time to 00:00:00
 
     const endOfWeek = new Date(startOfWeek);
-    endOfWeek.setDate(startOfWeek.getDate() + 6); // Saturday as end
+    endOfWeek.setDate(endOfWeek.getDate() + 6); // Saturday as end
     endOfWeek.setHours(23, 59, 59, 999); // Set time to 23:59:59
 
     return {
       startOfWeek,
       endOfWeek,
-      formatted: `${startOfWeek.toLocaleDateString()} - ${endOfWeek.toLocaleDateString()}`
+      formatted: `${startOfWeek.toLocaleDateString()} - ${endOfWeek.toLocaleDateString()}`,
     };
   };
 
@@ -49,11 +58,8 @@ function WeeklyInsights() {
 
       ordersSnapshot.forEach((doc) => {
         const data = doc.data();
-        Object.keys(data).forEach((key) => {
-          if (key !== "timestamp") {
-            memberSet.add(key);
-          }
-        });
+        const memberId = data.memberId;
+        if (memberId) memberSet.add(memberId); // Add memberId to set
       });
 
       setMembers(Array.from(memberSet));
@@ -74,23 +80,29 @@ function WeeklyInsights() {
     const ordersQuery = query(
       collection(db, "orders"),
       where("timestamp", ">=", startTimestamp),
-      where("timestamp", "<=", endTimestamp)
+      where("timestamp", "<=", endTimestamp),
+      orderBy("timestamp") // Apply orderBy here
     );
 
     try {
       const querySnapshot = await getDocs(ordersQuery);
       const totalCosts = {};
+      const paymentStatuses = {}; // Store payment status for each member
 
       querySnapshot.forEach((doc) => {
         const data = doc.data();
-        Object.keys(data).forEach((member) => {
-          if (member !== "timestamp") {
-            totalCosts[member] = (totalCosts[member] || 0) + parseFloat(data[member].cost);
-          }
-        });
+        const memberId = data.memberId;
+        const cost = parseFloat(data.cost);
+        const paymentStatus = data.paymentStatus || "Unpaid"; // If no payment status is set, default to "Unpaid"
+
+        if (memberId && !isNaN(cost)) {
+          totalCosts[memberId] = (totalCosts[memberId] || 0) + cost;
+          paymentStatuses[memberId] = paymentStatus; // Track the payment status
+        }
       });
 
       setWeeklyTotal(totalCosts);
+      setPaymentStatus(paymentStatuses); // Set the payment status for each member
     } catch (error) {
       console.error("Error fetching weekly data:", error);
     } finally {
@@ -106,6 +118,9 @@ function WeeklyInsights() {
     fetchWeeklyData();
   }, [selectedDate]); // Refetch when selected date changes
 
+  // Calculate the total sum of all payments for the week
+  const totalSum = Object.values(weeklyTotal).reduce((sum, cost) => sum + cost, 0);
+
   const maxCost = Math.max(...Object.values(weeklyTotal), 0);
 
   // Navigation for previous and next weeks
@@ -115,6 +130,46 @@ function WeeklyInsights() {
       newDate.setDate(prevDate.getDate() + weeks * 7); // Move forward or backward by 7 days
       return newDate;
     });
+  };
+
+  // Handle the Mark as Paid action
+  const handleMarkAsPaid = async (member) => {
+    try {
+      const { startOfWeek, endOfWeek } = getWeekRange(selectedDate);
+      const startTimestamp = Timestamp.fromDate(startOfWeek);
+      const endTimestamp = Timestamp.fromDate(endOfWeek);
+
+      const ordersQuery = query(
+        collection(db, "orders"),
+        where("memberId", "==", member),
+        where("timestamp", ">=", startTimestamp),
+        where("timestamp", "<=", endTimestamp),
+        where("paymentStatus", "!=", "Paid")
+      );
+
+      const querySnapshot = await getDocs(ordersQuery);
+      if (querySnapshot.empty) {
+        console.log(`No unpaid orders found for ${member} this week.`);
+        return;
+      }
+
+      const updatePromises = querySnapshot.docs.map((orderDoc) =>
+        updateDoc(orderDoc.ref, { paymentStatus: "Paid" })
+      );
+
+      await Promise.all(updatePromises);
+
+      // Update the payment status in the UI
+      setPaymentStatus((prevStatus) => ({
+        ...prevStatus,
+        [member]: "Paid", // Update the member's status
+      }));
+
+      setOpenDialog(false);
+      setSelectedMember(null);
+    } catch (error) {
+      console.error("Error marking orders as paid:", error);
+    }
   };
 
   // Export data to CSV
@@ -146,14 +201,15 @@ function WeeklyInsights() {
       </Typography>
 
       {/* Week Navigation Buttons */}
-      <Box sx={{ display: "flex", justifyContent: "center", gap: 2, mb: 2 }}>
-        <Button variant="outlined" onClick={() => handleWeekChange(-1)}>
+      <Box sx={{ display: "flex", flexDirection: { xs: "column", sm: "row" }, justifyContent: "center", gap: 2, mb: 2 }}>
+        <Button variant="outlined" onClick={() => handleWeekChange(-1)} sx={{ width: { xs: "100%", sm: "auto" } }}>
           Previous Week
         </Button>
         <Button
           variant="outlined"
           onClick={() => handleWeekChange(1)}
           disabled={getWeekRange(selectedDate).formatted === getWeekRange(new Date()).formatted}
+          sx={{ width: { xs: "100%", sm: "auto" } }}
         >
           Next Week
         </Button>
@@ -170,6 +226,17 @@ function WeeklyInsights() {
               Total Costs for the Week
             </Typography>
             <Divider sx={{ mb: 2 }} />
+
+            {/* Display Total Sum */}
+            <Box sx={{ mb: 3, p: 2, backgroundColor: "#f5f5f5", borderRadius: 2 }}>
+              <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                Total Sum for the Week:
+              </Typography>
+              <Typography variant="h5" sx={{ fontWeight: 700, color: "#00796B" }}>
+                ₹{totalSum.toFixed(2)}
+              </Typography>
+            </Box>
+
             {members.length > 0 ? (
               <List>
                 <Stack spacing={3}>
@@ -186,32 +253,57 @@ function WeeklyInsights() {
                             size="small"
                           />
                         </Box>
+
+                        {/* Display payment status */}
+                        <Typography
+                          variant="body2"
+                          color={paymentStatus[member] === "Paid" ? "success.main" : "error.main"}
+                          sx={{ fontWeight: 600 }}
+                        >
+                          {paymentStatus[member] || "Unpaid"}
+                        </Typography>
+
                         <LinearProgress
                           variant="determinate"
                           value={((weeklyTotal[member] || 0) / maxCost) * 100}
                           sx={{ height: 8, borderRadius: 2 }}
                         />
-                        {/* Payment Button Section */}
+
                         <Box sx={{ mt: 2 }}>
                           <Typography variant="body2" color="textSecondary">
                             Payment due for {member}: ₹{(weeklyTotal[member] || 0).toFixed(2)}
                           </Typography>
-                          <Button
-                            variant="contained"
-                            color="primary"
-                            onClick={() => {
-                              // For Android devices
-                              if (/Mobi|Android/i.test(navigator.userAgent)) {
-                                window.location.href = `intent://pay?pa=ravinapawar987-1@okicici&pn=Ravi%20N%20Pawar#Intent;scheme=upi;package=com.google.android.apps.nbu.paisa.user;end`;
-                              } else {
-                                // For Desktop devices, fallback to Google Pay URL
-                                window.open("https://pay.google.com/gp/p/ui/pay?pa=ravinapawar987-1@okicici", "_blank");
-                              }
-                            }}
-                            sx={{ mt: 1 }}
-                          >
-                            Pay via Google Pay
-                          </Button>
+                          <Box sx={{ display: "flex", gap: 2, flexDirection: { xs: "column", sm: "row" }, mt: 2 }}>
+                            {/* Google Pay Button */}
+                            <Button
+                              variant="contained"
+                              color="primary"
+                              onClick={() => {
+                                if (/Mobi|Android/i.test(navigator.userAgent)) {
+                                  window.location.href = `intent://pay?pa=ravinapawar987-1@okicici&pn=Ravi%20N%20Pawar#Intent;scheme=upi;package=com.google.android.apps.nbu.paisa.user;end`;
+                                } else {
+                                  window.open("https://pay.google.com/gp/p/ui/pay?pa=ravinapawar987-1@okicici", "_blank");
+                                }
+                              }}
+                              sx={{ width: { xs: "100%", sm: "auto" } }}
+                            >
+                              Pay via Google Pay
+                            </Button>
+
+                            {/* Mark as Paid Button */}
+                            <Button
+                              variant="contained"
+                              color="secondary"
+                              onClick={() => {
+                                setSelectedMember(member);
+                                setOpenDialog(true);
+                              }}
+                              disabled={paymentStatus[member] === "Paid"} // Disable if already paid
+                              sx={{ width: { xs: "100%", sm: "auto" } }}
+                            >
+                              {paymentStatus[member] === "Paid" ? "Paid" : "Mark as Paid"}
+                            </Button>
+                          </Box>
                         </Box>
                       </Stack>
                     </ListItem>
@@ -219,16 +311,38 @@ function WeeklyInsights() {
                 </Stack>
               </List>
             ) : (
-              <Alert severity="info" sx={{ mt: 3 }}>
-                No data available for this week.
-              </Alert>
+              <Alert severity="info">No orders found for this week.</Alert>
             )}
-            <Button variant="contained" color="primary" onClick={exportToCSV} sx={{ mt: 3 }}>
-              Export to CSV
-            </Button>
           </CardContent>
         </Card>
       )}
+
+      {/* Dialog for Mark as Paid */}
+      <Dialog open={openDialog} onClose={() => setOpenDialog(false)}>
+        <DialogTitle>Mark {selectedMember} as Paid</DialogTitle>
+        <DialogContent>
+          <Typography variant="body1">Are you sure you want to mark {selectedMember} as paid?</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenDialog(false)} color="primary">
+            Cancel
+          </Button>
+          <Button
+            onClick={() => handleMarkAsPaid(selectedMember)}
+            color="secondary"
+            variant="contained"
+          >
+            Confirm
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Export CSV Button */}
+      <Box sx={{ mt: 4, textAlign: "center" }}>
+        <Button variant="contained" color="primary" onClick={exportToCSV}>
+          Export Data to CSV
+        </Button>
+      </Box>
     </Box>
   );
 }

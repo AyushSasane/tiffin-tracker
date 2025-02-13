@@ -2,12 +2,12 @@ import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyCoyKyWnBVVdB1Pmt2sHiRg6S05w62MFk4",
-  authDomain: "tiffin-tracker-7d64c.firebaseapp.com",
-  projectId: "tiffin-tracker-7d64c",
-  storageBucket: "tiffin-tracker-7d64c.firebasestorage.app",
-  messagingSenderId: "669022377843",
-  appId: "1:669022377843:web:515fd3c1ce15257b399706"
+  apiKey: "AIzaSyA31ZWCeCKyeMreqvL8Rk-STTKDalDOCrc",
+  authDomain: "tiffin-track.firebaseapp.com",
+  projectId: "tiffin-track",
+  storageBucket: "tiffin-track.firebasestorage.app",
+  messagingSenderId: "265696675551",
+  appId: "1:265696675551:web:04e84ecda9688515ac0b6a"
 };
 
 // Initialize Firebase
